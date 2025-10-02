@@ -7,6 +7,9 @@ import {
 } from 'react'
 import type { ChangeEvent, FormEvent, KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { seedBookmarks, type Bookmark } from './data/bookmarks'
+import { detectUrlType } from './utils/detectUrlType'
+
+const APPS_SCRIPT_URL = 'https://script.google.com/a/macros/redhat.com/s/AKfycbxVd66ZRyaNza1dW2hIj32OMozp_WpgJiuOydxxVuPvCLEDOG-L0fqUvtLfIoKNjyLrCA/exec';
 
 type Filters = {
   search: string
@@ -87,6 +90,7 @@ const loadUserBookmarks = (): Bookmark[] => {
           id: typeof item.id === 'string' ? item.id : crypto.randomUUID(),
           title: String(item.title).trim() || 'Untitled',
           url: String(item.url).trim(),
+          urlType: item.urlType ?? detectUrlType(String(item.url).trim()), // Backfill missing urlType
           tags,
           note,
           savedAt,
@@ -127,6 +131,7 @@ const App = () => {
   const [userBookmarks, setUserBookmarks] = useState<Bookmark[]>(() => loadUserBookmarks())
   const [formFields, setFormFields] = useState<FormFields>(defaultFormFields)
   const [isFormVisible, setIsFormVisible] = useState(false)
+  const [isAutofilling, setIsAutofilling] = useState(false);
   const [status, setStatus] = useState<{ message: string; tone: StatusTone }>({
     message: '',
     tone: 'idle',
@@ -340,6 +345,7 @@ const App = () => {
       id: crypto.randomUUID(),
       title,
       url,
+      urlType: detectUrlType(url), // Detect type on creation
       tags,
       note,
       savedAt: new Date().toISOString(),
@@ -429,6 +435,7 @@ const App = () => {
           id: typeof entry.id === 'string' ? entry.id : crypto.randomUUID(),
           title,
           url,
+          urlType: detectUrlType(url), // Detect type on import
           tags,
           note,
           savedAt,
@@ -476,6 +483,42 @@ const App = () => {
     URL.revokeObjectURL(url)
     setStatusMessage('Export ready! Check your downloads.', 'success')
   }
+
+  const handleAutofill = async () => {
+    const url = formFields.url.trim();
+    if (!url) {
+      setStatusMessage('Please provide a URL to auto-fill from.', 'error');
+      return;
+    }
+
+    setIsAutofilling(true);
+    setStatusMessage('Fetching details...', 'idle');
+
+    try {
+      const fetchUrl = `${APPS_SCRIPT_URL}?url=${encodeURIComponent(url)}`;
+      const response = await fetch(fetchUrl);
+      const data = await response.json();
+
+      if (!response.ok || data.error) {
+        throw new Error(data.error || 'The script returned an error.');
+      }
+
+      setFormFields(prev => ({
+        ...prev,
+        title: data.summary || prev.title, // Use summary as title
+        tags: data.tags || prev.tags,
+        note: `"${data.summary}"` || prev.note // Prepend summary to note
+      }));
+
+      setStatusMessage('Content auto-filled successfully!', 'success');
+
+    } catch (error) {
+      console.error('Auto-fill failed:', error);
+      setStatusMessage(`Auto-fill failed: ${error.message}`, 'error');
+    } finally {
+      setIsAutofilling(false);
+    }
+  };
 
   const resultsCount = filteredBookmarks.length
   const countLabel = resultsCount === 1 ? 'bookmark' : 'bookmarks'
@@ -582,14 +625,24 @@ const App = () => {
 
             <label className="bookmark-form__field">
               <span>URL</span>
-              <input
-                name="url"
-                type="url"
-                placeholder="https://example.com"
-                required
-                value={formFields.url}
-                onChange={(event) => handleFieldChange('url', event)}
-              />
+              <div className="input-with-button">
+                <input
+                  name="url"
+                  type="url"
+                  placeholder="https://example.com"
+                  required
+                  value={formFields.url}
+                  onChange={(event) => handleFieldChange('url', event)}
+                />
+                <button
+                  type="button"
+                  className="button button--secondary"
+                  onClick={handleAutofill}
+                  disabled={isAutofilling}
+                >
+                  {isAutofilling ? 'Fetching...' : 'Auto-fill'}
+                </button>
+              </div>
             </label>
 
             <label className="bookmark-form__field">
@@ -680,6 +733,12 @@ const App = () => {
                 </h2>
                 <span className="bookmark-card__host">{getHostname(bookmark.url)}</span>
               </header>
+
+              <div className="bookmark-card__meta">
+                <span className={`bookmark-card__type type--${bookmark.urlType.toLowerCase().replace(' ', '-')}`}>
+                  {bookmark.urlType}
+                </span>
+              </div>
 
               <p
                 className={`bookmark-card__note ${
