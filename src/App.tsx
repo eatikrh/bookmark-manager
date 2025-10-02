@@ -545,9 +545,10 @@ const App = () => {
 
       setStatusMessage('Content auto-filled successfully!', 'success');
 
-    } catch (error) {
-      console.error('Auto-fill failed:', error);
-      setStatusMessage(`Auto-fill failed: ${error.message}`, 'error');
+    } catch (error: unknown) {
+      console.error('Auto-fill failed:', error)
+      const message = error instanceof Error ? error.message : String(error)
+      setStatusMessage(`Auto-fill failed: ${message}`, 'error')
     } finally {
       setIsAutofilling(false);
     }
