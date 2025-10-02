@@ -35,6 +35,38 @@ const defaultFormFields: FormFields = {
   note: '',
 }
 
+// Lightweight JSONP helper to call Apps Script in the user's signed-in context
+function jsonp<TResponse>(baseUrl: string, params: Record<string, string>): Promise<TResponse> {
+  return new Promise((resolve, reject) => {
+    const callbackName = `__bmCb_${Date.now()}_${Math.random().toString(36).slice(2)}`
+    ;(window as unknown as Record<string, (data: TResponse) => void>)[callbackName] = (data: TResponse) => {
+      resolve(data)
+      cleanup()
+    }
+
+    const url = new URL(baseUrl)
+    for (const [key, value] of Object.entries(params)) {
+      url.searchParams.set(key, value)
+    }
+    url.searchParams.set('callback', callbackName)
+    url.searchParams.set('_', String(Date.now()))
+
+    const script = document.createElement('script')
+    script.src = url.toString()
+    script.async = true
+    script.onerror = () => {
+      reject(new Error('JSONP load error'))
+      cleanup()
+    }
+    document.body.appendChild(script)
+
+    function cleanup() {
+      delete (window as unknown as Record<string, unknown>)[callbackName]
+      script.remove()
+    }
+  })
+}
+
 const formatDate = (isoDate: string) => {
   const formatter = new Intl.DateTimeFormat(undefined, {
     year: 'numeric',
@@ -495,12 +527,13 @@ const App = () => {
     setStatusMessage('Fetching details...', 'idle');
 
     try {
-      const fetchUrl = `${APPS_SCRIPT_URL}?url=${encodeURIComponent(url)}`;
-      const response = await fetch(fetchUrl);
-      const data = await response.json();
+      const data = await jsonp<{ summary?: string; tags?: string; statusCode?: number; error?: string }>(
+        APPS_SCRIPT_URL,
+        { url: encodeURIComponent(url) },
+      )
 
-      if (!response.ok || data.error) {
-        throw new Error(data.error || 'The script returned an error.');
+      if (data.error) {
+        throw new Error(data.error)
       }
 
       setFormFields(prev => ({
