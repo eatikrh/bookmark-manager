@@ -13,8 +13,10 @@
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@netlify/functions": "^4.2.7",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
+    "esbuild": "^0.25.10",
     "typescript": "~5.8.3",
     "vite": "^7.1.7"
   }

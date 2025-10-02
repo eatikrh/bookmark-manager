@@ -9,7 +9,9 @@ import type { ChangeEvent, FormEvent, KeyboardEvent as ReactKeyboardEvent } from
 import { seedBookmarks, type Bookmark } from './data/bookmarks'
 import { detectUrlType } from './utils/detectUrlType'
 
-const APPS_SCRIPT_URL = 'https://script.google.com/a/macros/redhat.com/s/AKfycbxVd66ZRyaNza1dW2hIj32OMozp_WpgJiuOydxxVuPvCLEDOG-L0fqUvtLfIoKNjyLrCA/exec';
+// Preferred: call Netlify Function in prod; fallback to Apps Script JSONP if needed
+const SUMMARIZE_ENDPOINT = '/.netlify/functions/summarize'
+const APPS_SCRIPT_URL = 'https://script.google.com/a/macros/redhat.com/s/AKfycbxVd66ZRyaNza1dW2hIj32OMozp_WpgJiuOydxxVuPvCLEDOG-L0fqUvtLfIoKNjyLrCA/exec'
 
 type Filters = {
   search: string
@@ -527,10 +529,20 @@ const App = () => {
     setStatusMessage('Fetching details...', 'idle');
 
     try {
-      const data = await jsonp<{ summary?: string; tags?: string; statusCode?: number; error?: string }>(
-        APPS_SCRIPT_URL,
-        { url: encodeURIComponent(url) },
-      )
+      // Try Netlify Function first (no auth/cookies needed)
+      let data: { summary?: string; tags?: string; statusCode?: number; error?: string }
+      try {
+        const res = await fetch(`${SUMMARIZE_ENDPOINT}?url=${encodeURIComponent(url)}`)
+        data = await res.json()
+        if (!res.ok || data.error) throw new Error(data.error || 'Summarize function failed')
+      } catch (fnErr) {
+        // Fallback to Apps Script JSONP (works when user is logged into Google and browser allows it)
+        data = await jsonp<{ summary?: string; tags?: string; statusCode?: number; error?: string }>(
+          APPS_SCRIPT_URL,
+          { url },
+        )
+        if (data.error) throw new Error(data.error)
+      }
 
       if (data.error) {
         throw new Error(data.error)
